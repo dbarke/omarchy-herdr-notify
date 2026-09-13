@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Desktop-notify when a herdr agent starts waiting on you, with a click that
+takes you there.
+
+herdr can deliver its own notifications to the OS (ui.toast.delivery =
+"system"), but it sends them through notify-send with no action attached, so
+clicking one only dismisses it. This sends the notification instead, with
+--exec wired to herdr-goto, so the click focuses the right Hyprland window and
+the right herdr pane.
+
+Only the transition into "blocked" fires. An agent already blocked when the
+watcher starts is recorded, not announced, so a restart is quiet.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+INTERVAL = float(os.environ.get("HERDR_WATCH_INTERVAL", "3"))
+TRIGGER = "blocked"
+
+# The click action has to be an absolute path that still resolves when the
+# notification daemon runs it, long after this process set it. Prefer the copy
+# sitting beside this script -- following symlinks, so a link in ~/.local/bin
+# back into a checkout still finds its sibling -- and fall back to PATH.
+_sibling = os.path.join(os.path.dirname(os.path.realpath(__file__)), "herdr-goto")
+GOTO = _sibling if os.access(_sibling, os.X_OK) else (shutil.which("herdr-goto") or _sibling)
+
+
+def herdr(*args):
+    try:
+        run = subprocess.run(["herdr", *args], capture_output=True,
+                             text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if run.returncode != 0:
+        return None
+    try:
+        return json.loads(run.stdout)["result"]
+    except (ValueError, KeyError):
+        return None
+
+
+def notify(agent, where, title, pane):
+    subprocess.run([
+        "omarchy-notification-send",
+        "--app-name", "herdr",
+        "-g", "󰚩",
+        "-u", "normal",
+        f"{agent} is waiting for you",
+        "\n".join(x for x in (where, title) if x),
+        "--exec", GOTO, pane,
+    ], check=False)
+
+
+def main():
+    last = {}
+    while True:
+        result = herdr("agent", "list")
+        agents = (result or {}).get("agents")
+        if agents is None:
+            time.sleep(INTERVAL)
+            continue
+
+        spaces = {w.get("workspace_id"): w
+                  for w in (herdr("workspace", "list") or {}).get("workspaces", [])}
+
+        seen = set()
+        for a in agents:
+            pane = a.get("pane_id")
+            if not pane:
+                continue
+            seen.add(pane)
+            status = a.get("agent_status")
+            previous = last.get(pane)
+            last[pane] = status
+
+            # Announce the edge into blocked, never the standing state: without
+            # this every poll would re-notify for as long as it waits.
+            if status != TRIGGER or previous == TRIGGER or previous is None:
+                continue
+
+            space = spaces.get(a.get("workspace_id"), {})
+            label = space.get("label") or a.get("workspace_id") or ""
+            number = space.get("number")
+            where = f"{label} · {number}" if number else label
+            notify(a.get("agent") or "agent", where,
+                   a.get("terminal_title_stripped") or "", pane)
+
+        for pane in [p for p in last if p not in seen]:
+            del last[pane]
+
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

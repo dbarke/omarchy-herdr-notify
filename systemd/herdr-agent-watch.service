@@ -1,0 +1,16 @@
+[Unit]
+Description=Notify with a click-to-focus action when a herdr agent starts waiting
+Documentation=https://github.com/herdrdev/herdr
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/herdr-agent-watch
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin
+# herdr may not be up yet at login, and the watcher tolerates that, but if it
+# does die there is no value in giving up.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

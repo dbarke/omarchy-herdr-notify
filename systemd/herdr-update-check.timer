@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily check for a herdr update in the omarchy repo
+
+[Timer]
+OnCalendar=daily
+# Do not have every machine hammer the mirror at 00:00, and do not notify
+# in the middle of the night.
+RandomizedDelaySec=2h
+# Catch up after the machine was asleep or off at the scheduled time.
+Persistent=true
+Unit=herdr-update-check.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check whether a herdr update has reached the omarchy repo
+Documentation=https://github.com/herdrdev/herdr
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/herdr-update-check
+# systemd --user starts with a sparse PATH; checkupdates, pacman and
+# omarchy-notification-send all live in /usr/bin.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin

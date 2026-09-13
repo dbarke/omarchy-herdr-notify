@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# Notify once when a herdr update reaches the omarchy pacman repo.
+#
+# herdr is packaged (pacman -Qi herdr -> Repository: omarchy), and upstream is
+# explicit that `herdr update` is only for installs made by its own installer.
+# So the upgrade has to come through pacman, which means waiting for the repo
+# to carry it. This watches for that.
+#
+# checkupdates syncs into a temporary database, so it never touches system
+# state and needs no root. Exit codes: 0 updates found, 1 error, 2 none.
+
+set -uo pipefail
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-update-check"
+STATE="$STATE_DIR/notified"
+mkdir -p "$STATE_DIR"
+
+line=$(checkupdates 2>/dev/null | awk '$1 == "herdr" { print; exit }')
+[[ -n $line ]] || exit 0
+
+# "herdr 0.8.2-1 -> 0.9.0-1" — the version we would be moving to.
+new=$(awk '{ print $NF }' <<<"$line")
+
+# Only once per version, or a daily timer becomes a daily nag.
+[[ -f $STATE && $(<"$STATE") == "$new" ]] && exit 0
+
+omarchy-notification-send \
+  --app-name "herdr" \
+  -g 󰏔 \
+  -u normal \
+  "herdr $new is in the omarchy repo" \
+  "$line
+
+Run: omarchy update
+Then restart herdr to land on it — that ends every pane, so pick a moment when no agent is mid-task."
+
+printf '%s\n' "$new" >"$STATE"

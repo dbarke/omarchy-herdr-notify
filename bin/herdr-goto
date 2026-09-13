@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# Focus a herdr pane from outside herdr — used as the click action on the
+# desktop notification that herdr-agent-watch sends.
+#
+# Two moves are needed: Hyprland has to raise the terminal window running the
+# herdr client (it may be on another Hyprland workspace), and herdr has to
+# focus the pane inside it.
+
+set -uo pipefail
+
+target=${1:-}
+if [[ -z $target ]]; then
+  echo "usage: herdr-goto <pane-id>   e.g. herdr-goto w5:p1" >&2
+  exit 2
+fi
+
+# The herdr client's cmdline is exactly "herdr"; the server's is
+# "/usr/bin/herdr server". The client's parent is the terminal window that
+# Hyprland knows about, so match that pid against hyprctl's client list.
+addr=$(python3 - <<'PY'
+import glob, json, os, subprocess
+
+def cmdline(pid):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return fh.read().split(b"\0")[:-1]
+    except OSError:
+        return []
+
+def ppid(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return int(fh.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, IndexError, ValueError):
+        return None
+
+terminals = set()
+for entry in glob.glob("/proc/[0-9]*"):
+    pid = int(os.path.basename(entry))
+    if cmdline(pid) == [b"herdr"]:
+        parent = ppid(pid)
+        if parent:
+            terminals.add(parent)
+
+try:
+    out = subprocess.run(["hyprctl", "clients", "-j"],
+                         capture_output=True, text=True, timeout=5).stdout
+    windows = json.loads(out)
+except Exception:
+    windows = []
+
+for w in windows:
+    if w.get("pid") in terminals:
+        print(w.get("address", ""))
+        break
+PY
+)
+
+[[ -n $addr ]] && hyprctl dispatch focuswindow "address:$addr" >/dev/null 2>&1
+herdr agent focus "$target" >/dev/null 2>&1
